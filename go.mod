@@ -1,4 +1,4 @@
-module github.com/rix4uni/sender
+module github.com/rix4uni/sftpsender
 
 go 1.25.1
 

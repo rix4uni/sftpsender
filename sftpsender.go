@@ -14,7 +14,7 @@ import (
 	"golang.org/x/crypto/ssh"
 	"gopkg.in/yaml.v2"
 
-	"github.com/rix4uni/sender/banner"
+	"github.com/rix4uni/sftpsender/banner"
 )
 
 type Config struct {
@@ -29,7 +29,7 @@ type Credential struct {
 	Secret   string `yaml:"secret"`
 }
 
-type Sender struct {
+type SftpSender struct {
 	config *Config
 }
 
@@ -61,7 +61,7 @@ func ensureConfigExists(configPath string) error {
 
 	// Download config file
 	fmt.Printf("Downloading config file to %s...\n", configPath)
-	configURL := "https://raw.githubusercontent.com/rix4uni/sender/refs/heads/main/config.yaml"
+	configURL := "https://raw.githubusercontent.com/rix4uni/sftpsender/refs/heads/main/config.yaml"
 
 	resp, err := http.Get(configURL)
 	if err != nil {
@@ -89,7 +89,7 @@ func ensureConfigExists(configPath string) error {
 	return nil
 }
 
-func NewSender(configPath string) (*Sender, error) {
+func NewSftpSender(configPath string) (*SftpSender, error) {
 	config := &Config{}
 
 	// Expand home directory
@@ -108,10 +108,10 @@ func NewSender(configPath string) (*Sender, error) {
 		config.DefaultRemoteLocation = "/root"
 	}
 
-	return &Sender{config: config}, nil
+	return &SftpSender{config: config}, nil
 }
 
-func (s *Sender) findCredential(ip string) (*Credential, error) {
+func (s *SftpSender) findCredential(ip string) (*Credential, error) {
 	for _, cred := range s.config.Credentials {
 		if cred.IP == ip {
 			return &cred, nil
@@ -120,7 +120,7 @@ func (s *Sender) findCredential(ip string) (*Credential, error) {
 	return nil, fmt.Errorf("no credentials found for IP: %s", ip)
 }
 
-func (s *Sender) Upload(localPath, ip, remoteLocation string) error {
+func (s *SftpSender) Upload(localPath, ip, remoteLocation string) error {
 	cred, err := s.findCredential(ip)
 	if err != nil {
 		return err
@@ -154,7 +154,7 @@ func (s *Sender) Upload(localPath, ip, remoteLocation string) error {
 	return s.uploadFileSFTP(client, localPath, remotePath)
 }
 
-func (s *Sender) Download(remotePath, ip, localLocation string) error {
+func (s *SftpSender) Download(remotePath, ip, localLocation string) error {
 	cred, err := s.findCredential(ip)
 	if err != nil {
 		return err
@@ -181,7 +181,7 @@ func (s *Sender) Download(remotePath, ip, localLocation string) error {
 }
 
 // SFTP-based implementations
-func (s *Sender) uploadFileSFTP(client *ssh.Client, localPath, remotePath string) error {
+func (s *SftpSender) uploadFileSFTP(client *ssh.Client, localPath, remotePath string) error {
 	sftpClient, err := s.getSFTPClient(client)
 	if err != nil {
 		return err
@@ -211,7 +211,7 @@ func (s *Sender) uploadFileSFTP(client *ssh.Client, localPath, remotePath string
 	return nil
 }
 
-func (s *Sender) uploadDirectorySFTP(client *ssh.Client, localPath, remotePath string) error {
+func (s *SftpSender) uploadDirectorySFTP(client *ssh.Client, localPath, remotePath string) error {
 	sftpClient, err := s.getSFTPClient(client)
 	if err != nil {
 		return err
@@ -244,7 +244,7 @@ func (s *Sender) uploadDirectorySFTP(client *ssh.Client, localPath, remotePath s
 	})
 }
 
-func (s *Sender) downloadSFTP(client *ssh.Client, remotePath, localPath string) error {
+func (s *SftpSender) downloadSFTP(client *ssh.Client, remotePath, localPath string) error {
 	sftpClient, err := s.getSFTPClient(client)
 	if err != nil {
 		return err
@@ -263,7 +263,7 @@ func (s *Sender) downloadSFTP(client *ssh.Client, remotePath, localPath string) 
 	return s.downloadFileSFTP(sftpClient, remotePath, localPath)
 }
 
-func (s *Sender) downloadFileSFTP(sftpClient *sftp.Client, remotePath, localPath string) error {
+func (s *SftpSender) downloadFileSFTP(sftpClient *sftp.Client, remotePath, localPath string) error {
 	// Create local directory if needed
 	if err := os.MkdirAll(filepath.Dir(localPath), 0755); err != nil {
 		return fmt.Errorf("failed to create local directory: %v", err)
@@ -292,7 +292,7 @@ func (s *Sender) downloadFileSFTP(sftpClient *sftp.Client, remotePath, localPath
 	return nil
 }
 
-func (s *Sender) downloadDirectorySFTP(sftpClient *sftp.Client, remotePath, localPath string) error {
+func (s *SftpSender) downloadDirectorySFTP(sftpClient *sftp.Client, remotePath, localPath string) error {
 	// Create local directory
 	if err := os.MkdirAll(localPath, 0755); err != nil {
 		return fmt.Errorf("failed to create local directory: %v", err)
@@ -327,7 +327,7 @@ func (s *Sender) downloadDirectorySFTP(sftpClient *sftp.Client, remotePath, loca
 }
 
 // SSH and SFTP client helpers
-func (s *Sender) getSSHClient(cred *Credential) (*ssh.Client, error) {
+func (s *SftpSender) getSSHClient(cred *Credential) (*ssh.Client, error) {
 	config := &ssh.ClientConfig{
 		User: cred.Username,
 		Auth: []ssh.AuthMethod{
@@ -339,7 +339,7 @@ func (s *Sender) getSSHClient(cred *Credential) (*ssh.Client, error) {
 	return ssh.Dial("tcp", fmt.Sprintf("%s:22", cred.IP), config)
 }
 
-func (s *Sender) getSFTPClient(sshClient *ssh.Client) (*sftp.Client, error) {
+func (s *SftpSender) getSFTPClient(sshClient *ssh.Client) (*sftp.Client, error) {
 	return sftp.NewClient(sshClient)
 }
 
@@ -349,7 +349,7 @@ func main() {
 		download   = pflag.String("download", "", "Remote file/directory to download")
 		ip         = pflag.String("ip", "", "VPS IP address (required)")
 		location   = pflag.String("location", "", "Custom remote location for upload or local location for download")
-		configPath = pflag.String("config", "~/.config/sender/config.yaml", "Path to config file")
+		configPath = pflag.String("config", "~/.config/sftpsender/config.yaml", "Path to config file")
 		silent     = pflag.Bool("silent", false, "Silent mode.")
 		version    = pflag.Bool("version", false, "Print the version of the tool and exit.")
 	)
@@ -381,18 +381,18 @@ func main() {
 		log.Fatalf("Failed to ensure config file exists: %v", err)
 	}
 
-	sender, err := NewSender(*configPath)
+	sftpsender, err := NewSftpSender(*configPath)
 	if err != nil {
-		log.Fatalf("Failed to initialize sender: %v", err)
+		log.Fatalf("Failed to initialize sftpsender: %v", err)
 	}
 
 	if *upload != "" {
-		if err := sender.Upload(*upload, *ip, *location); err != nil {
+		if err := sftpsender.Upload(*upload, *ip, *location); err != nil {
 			log.Fatalf("Upload failed: %v", err)
 		}
 		fmt.Println("Upload completed successfully!")
 	} else if *download != "" {
-		if err := sender.Download(*download, *ip, *location); err != nil {
+		if err := sftpsender.Download(*download, *ip, *location); err != nil {
 			log.Fatalf("Download failed: %v", err)
 		}
 		fmt.Println("Download completed successfully!")
