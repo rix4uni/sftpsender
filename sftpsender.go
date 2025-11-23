@@ -23,6 +23,7 @@ type Config struct {
 }
 
 type Credential struct {
+	Name     string `yaml:"name"`
 	IP       string `yaml:"ip"`
 	Username string `yaml:"username"`
 	Password string `yaml:"password"`
@@ -112,12 +113,19 @@ func NewSftpSender(configPath string) (*SftpSender, error) {
 }
 
 func (s *SftpSender) findCredential(ip string) (*Credential, error) {
+	// First, try to match by VPS name
+	for _, cred := range s.config.Credentials {
+		if cred.Name != "" && cred.Name == ip {
+			return &cred, nil
+		}
+	}
+	// If no name match found, fall back to IP matching (backward compatibility)
 	for _, cred := range s.config.Credentials {
 		if cred.IP == ip {
 			return &cred, nil
 		}
 	}
-	return nil, fmt.Errorf("no credentials found for IP: %s", ip)
+	return nil, fmt.Errorf("no credentials found for IP or VPS name: %s", ip)
 }
 
 func (s *SftpSender) Upload(localPath, ip, remoteLocation string) error {

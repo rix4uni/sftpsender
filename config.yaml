@@ -1,11 +1,13 @@
 default_remote_location: "/root"
 
 credentials:
-  - ip: "192.168.1.1"
+  - name: "worker1"
+    ip: "192.168.1.1"
     username: "root"
     password: "193Me4d67936d6031ebeebec56c2b7bV"
     secret: ""
 
+  - name: "worker2"
   - ip: "192.168.1.2"
     username: "root"
     password: "0d9b7461ae7a1fe752bc4197d029I90o"
