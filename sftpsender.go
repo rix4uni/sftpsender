@@ -1,13 +1,17 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/pkg/sftp"
 	"github.com/spf13/pflag"
@@ -196,6 +200,14 @@ func (s *SftpSender) uploadFileSFTP(client *ssh.Client, localPath, remotePath st
 	}
 	defer sftpClient.Close()
 
+	// Create parent directories if they don't exist
+	remoteDir := path.Dir(remotePath)
+	if remoteDir != "." && remoteDir != "/" {
+		if err := sftpClient.MkdirAll(remoteDir); err != nil {
+			return fmt.Errorf("failed to create remote directory: %v", err)
+		}
+	}
+
 	// Open local file
 	localFile, err := os.Open(localPath)
 	if err != nil {
@@ -210,8 +222,11 @@ func (s *SftpSender) uploadFileSFTP(client *ssh.Client, localPath, remotePath st
 	}
 	defer remoteFile.Close()
 
-	// Copy content
-	_, err = io.Copy(remoteFile, localFile)
+	// Use io.CopyBuffer with optimal buffer size (256KB = 8x 32KB packet size)
+	// This allows the SFTP library to optimize packet batching internally
+	// Buffer size is a multiple of packet size for better alignment
+	buffer := make([]byte, 256*1024) // 256KB = 8 packets, optimal for SFTP
+	_, err = io.CopyBuffer(remoteFile, localFile, buffer)
 	if err != nil {
 		return fmt.Errorf("failed to copy file content: %v", err)
 	}
@@ -291,8 +306,14 @@ func (s *SftpSender) downloadFileSFTP(sftpClient *sftp.Client, remotePath, local
 	}
 	defer localFile.Close()
 
-	// Copy content
-	_, err = io.Copy(localFile, remoteFile)
+	// Use buffered writer for local file writes (helps with disk I/O)
+	writer := bufio.NewWriterSize(localFile, 256*1024)
+	defer writer.Flush()
+
+	// Use io.CopyBuffer with optimal buffer size (256KB = 8x 32KB packet size)
+	// This allows the SFTP library to optimize packet batching internally
+	buffer := make([]byte, 256*1024) // 256KB = 8 packets, optimal for SFTP
+	_, err = io.CopyBuffer(writer, remoteFile, buffer)
 	if err != nil {
 		return fmt.Errorf("failed to copy file content: %v", err)
 	}
@@ -342,21 +363,51 @@ func (s *SftpSender) getSSHClient(cred *Credential) (*ssh.Client, error) {
 			ssh.Password(cred.Password),
 		},
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		// Optimize connection timeouts
+		Timeout: 30 * time.Second,
 	}
 
-	return ssh.Dial("tcp", fmt.Sprintf("%s:22", cred.IP), config)
+	// Create TCP connection with keepalive for better network handling
+	// This helps maintain connection stability and reduces overhead
+	conn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:22", cred.IP), 30*time.Second)
+	if err != nil {
+		return nil, err
+	}
+
+	// Set TCP keepalive to maintain connection and detect dead connections faster
+	if tcpConn, ok := conn.(*net.TCPConn); ok {
+		tcpConn.SetKeepAlive(true)
+		tcpConn.SetKeepAlivePeriod(30 * time.Second)
+		// Set TCP no delay for lower latency (disable Nagle's algorithm)
+		tcpConn.SetNoDelay(true)
+	}
+
+	// Perform SSH handshake with optimized connection
+	c, chans, reqs, err := ssh.NewClientConn(conn, fmt.Sprintf("%s:22", cred.IP), config)
+	if err != nil {
+		conn.Close()
+		return nil, err
+	}
+
+	return ssh.NewClient(c, chans, reqs), nil
 }
 
 func (s *SftpSender) getSFTPClient(sshClient *ssh.Client) (*sftp.Client, error) {
-	return sftp.NewClient(sshClient)
+	// Create SFTP client with performance optimizations
+	// Enable concurrent writes and reads for better performance (like Termius)
+	// This allows multiple requests to be in flight simultaneously
+	return sftp.NewClient(sshClient,
+		sftp.UseConcurrentWrites(true),        // Enable concurrent writes - key for performance!
+		sftp.UseConcurrentReads(true),         // Enable concurrent reads for downloads
+		sftp.MaxConcurrentRequestsPerFile(64), // Allow up to 64 concurrent requests per file
+	)
 }
 
 func main() {
 	var (
 		upload     = pflag.String("upload", "", "Local file/directory to upload")
 		download   = pflag.String("download", "", "Remote file/directory to download")
-		ip         = pflag.String("ip", "", "VPS IP address (required)")
-		location   = pflag.String("location", "", "Custom remote location for upload or local location for download")
+		ip         = pflag.String("ip", "", "VPS IP address or name (required). Optionally include path: IP:/path or name:/path")
 		configPath = pflag.String("config", "~/.config/sftpsender/config.yaml", "Path to config file")
 		silent     = pflag.Bool("silent", false, "Silent mode.")
 		version    = pflag.Bool("version", false, "Print the version of the tool and exit.")
@@ -377,11 +428,20 @@ func main() {
 	}
 
 	if *ip == "" {
-		log.Fatal("IP address is required. Use --ip flag")
+		log.Fatal("IP address or VPS name is required. Use --ip flag")
 	}
 
 	if (*upload == "" && *download == "") || (*upload != "" && *download != "") {
 		log.Fatal("You must specify either --upload or --download (but not both)")
+	}
+
+	// Parse IP/name and optional location from --ip flag
+	// Format: IP or name:/path
+	ipParts := strings.SplitN(*ip, ":", 2)
+	ipOrName := ipParts[0]
+	var location string
+	if len(ipParts) > 1 {
+		location = ipParts[1]
 	}
 
 	// Ensure config file exists
@@ -395,12 +455,12 @@ func main() {
 	}
 
 	if *upload != "" {
-		if err := sftpsender.Upload(*upload, *ip, *location); err != nil {
+		if err := sftpsender.Upload(*upload, ipOrName, location); err != nil {
 			log.Fatalf("Upload failed: %v", err)
 		}
 		fmt.Println("Upload completed successfully!")
 	} else if *download != "" {
-		if err := sftpsender.Download(*download, *ip, *location); err != nil {
+		if err := sftpsender.Download(*download, ipOrName, location); err != nil {
 			log.Fatalf("Download failed: %v", err)
 		}
 		fmt.Println("Download completed successfully!")

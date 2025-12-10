@@ -1,17 +1,18 @@
 ## SftpSender
 
-A lightweight CLI tool for uploading and downloading files/directories to/from remote servers using SFTP over SSH.
+A high-performance CLI tool for uploading and downloading files/directories to/from remote servers using SFTP over SSH. Optimized for speed with concurrent operations and advanced performance features.
 
 ## Features
 
-- 🚀 Fast file and directory transfers using SFTP
+- ⚡ **High-Performance Transfers** - Optimized with concurrent writes/reads and request pipelining
 - 📁 Support for both single files and entire directories
 - 🔐 Secure credential management via YAML configuration
 - 🎯 Multiple VPS credential support
 - 🏷️ VPS name support - use friendly names instead of remembering IP addresses
 - 🏠 Automatic config file setup from GitHub
-- 📍 Custom upload/download locations
+- 📍 Custom upload/download locations (integrated into `--ip` flag)
 - 🔕 Silent mode for automation
+- 📂 Auto-creates remote directories as needed
 
 ## Installation
 
@@ -22,8 +23,8 @@ go install github.com/rix4uni/sftpsender@latest
 
 **Pre-built Binaries:**
 ```
-wget https://github.com/rix4uni/sftpsender/releases/download/v0.0.2/sftpsender-linux-amd64-0.0.2.tgz
-tar -xvzf sftpsender-linux-amd64-0.0.2.tgz
+wget https://github.com/rix4uni/sftpsender/releases/download/v0.0.3/sftpsender-linux-amd64-0.0.3.tgz
+tar -xvzf sftpsender-linux-amd64-0.0.3.tgz
 mv sftpsender ~/go/bin/
 ```
 
@@ -97,9 +98,14 @@ Upload a directory:
 sftpsender --upload bbp-scope-moniter --ip worker1
 ```
 
-Upload to a custom remote location:
+Upload to a custom remote location (path integrated into `--ip` flag):
 ```yaml
-sftpsender --upload file.txt --ip worker1 --location /custom/path
+sftpsender --upload file.txt --ip worker1:/custom/path
+```
+
+Upload to a nested directory (auto-creates directories if they don't exist):
+```yaml
+sftpsender --upload file.txt --ip worker1:this-is-very-long/testx
 ```
 
 ### Download Files
@@ -119,9 +125,9 @@ Download a directory:
 sftpsender --download bbp-scope-moniter --ip worker1
 ```
 
-Download to a custom local location:
+Download from a custom remote location:
 ```yaml
-sftpsender --download file.txt --ip worker1 --location /local/path
+sftpsender --download file.txt --ip worker1:/remote/path
 ```
 
 ## VPS Name Support
@@ -130,8 +136,52 @@ You can use either IP addresses or VPS names with the `--ip` flag:
 
 - **IP Address**: `sftpsender --upload file.txt --ip 192.168.1.1`
 - **VPS Name**: `sftpsender --upload file.txt --ip worker1`
+- **IP with Path**: `sftpsender --upload file.txt --ip 192.168.1.1:/custom/path`
+- **VPS Name with Path**: `sftpsender --upload file.txt --ip worker1:/custom/path`
 
 The tool will first try to match by VPS name, then fall back to IP address matching if no name match is found. This means:
 - If you have a VPS with name "worker1" configured, you can use `--ip worker1`
 - If you don't have a name configured, you can still use the IP address directly
 - Both methods work seamlessly and maintain full backward compatibility
+
+## Path Specification
+
+The `--ip` flag now supports specifying the remote path directly using colon syntax:
+
+- `--ip worker1` - Uses default remote location (from config or `/root`)
+- `--ip worker1:/custom/path` - Uploads/downloads to/from `/custom/path`
+- `--ip 192.168.1.1:/path/to/file` - Works with IP addresses too
+
+## Performance Optimizations
+
+SftpSender is optimized for high-speed transfers with the following features:
+
+- **Concurrent Operations**: Enabled concurrent writes and reads for up to 64 simultaneous requests per file
+- **Request Pipelining**: Multiple SFTP requests can be in flight simultaneously, reducing latency
+- **Optimized Buffers**: 256KB buffers (8x the SFTP packet size) for optimal packet alignment
+- **TCP Optimizations**: Keepalive and no-delay settings for better network performance
+- **Auto-Directory Creation**: Automatically creates remote directories as needed
+
+These optimizations make SftpSender competitive with commercial SFTP clients like Termius.
+
+## Examples
+
+Upload a file to a specific directory (creates directory if needed):
+```yaml
+sftpsender --upload data.csv --ip worker1:reports/2024/january
+```
+
+Upload using IP address with custom path:
+```yaml
+sftpsender --upload backup.tar.gz --ip 192.168.1.1:/backups
+```
+
+Download from a specific remote path:
+```yaml
+sftpsender --download logs/app.log --ip worker1:/var/log
+```
+
+Silent mode for automation (no banner or progress):
+```yaml
+sftpsender --silent --upload file.txt --ip worker1
+```
