@@ -24,8 +24,8 @@ go install github.com/rix4uni/sftpsender@latest
 
 **Pre-built Binaries:**
 ```
-wget https://github.com/rix4uni/sftpsender/releases/download/v0.0.4/sftpsender-linux-amd64-0.0.4.tgz
-tar -xvzf sftpsender-linux-amd64-0.0.4.tgz
+wget https://github.com/rix4uni/sftpsender/releases/download/v0.0.5/sftpsender-linux-amd64-0.0.5.tgz
+tar -xvzf sftpsender-linux-amd64-0.0.5.tgz
 mv sftpsender ~/go/bin/
 ```
 
@@ -61,9 +61,17 @@ credentials:
     username: root
     password: anotherpassword
     secret: optional_secret_key
+
+  - name: worker4          # Custom SSH port example
+    ip: 192.168.1.4:30224  # Port specified after colon (default: 22)
+    username: root
+    password: anotherpassword
+    secret: optional_secret_key
 ```
 
 **Note:** The `name` field is optional. You can use either IP addresses or VPS names (or both). If a VPS name is provided, you can reference the server using that name instead of the IP address.
+
+**Custom SSH Port:** You can specify a custom SSH port by appending it to the IP address with a colon. If no port is specified, the default port 22 is used.
 
 ### Manual Configuration
 

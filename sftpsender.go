@@ -375,9 +375,18 @@ func (s *SftpSender) getSSHClient(cred *Credential) (*ssh.Client, error) {
 		Timeout: 30 * time.Second,
 	}
 
+	// Parse IP and port - if IP already contains port, use it; otherwise default to 22
+	host, port, err := net.SplitHostPort(cred.IP)
+	if err != nil {
+		// IP doesn't contain a port, use IP as-is with default port 22
+		host = cred.IP
+		port = "22"
+	}
+	address := net.JoinHostPort(host, port)
+
 	// Create TCP connection with keepalive for better network handling
 	// This helps maintain connection stability and reduces overhead
-	conn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:22", cred.IP), 30*time.Second)
+	conn, err := net.DialTimeout("tcp", address, 30*time.Second)
 	if err != nil {
 		return nil, err
 	}
@@ -391,7 +400,7 @@ func (s *SftpSender) getSSHClient(cred *Credential) (*ssh.Client, error) {
 	}
 
 	// Perform SSH handshake with optimized connection
-	c, chans, reqs, err := ssh.NewClientConn(conn, fmt.Sprintf("%s:22", cred.IP), config)
+	c, chans, reqs, err := ssh.NewClientConn(conn, address, config)
 	if err != nil {
 		conn.Close()
 		return nil, err
